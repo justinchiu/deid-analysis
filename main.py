@@ -13,19 +13,28 @@ import re
 import spacy
 from spacy.tokenizer import Tokenizer
 
+from transformers import pipeline, AutoTokenizer, AutoModelForTokenClassification
+import torch
 
+# spacy hacks
 nlp = spacy.load('en_core_web_sm')
 #text = "This is it's"
 #print("Before:", [tok for tok in nlp(text)])
-
 nlp.tokenizer = Tokenizer(nlp.vocab, token_match=re.compile(r'\S+').match)
 
+# ner model
+tokenizer = AutoTokenizer.from_pretrained("dslim/bert-base-NER-uncased")
+model = AutoModelForTokenClassification.from_pretrained("dslim/bert-base-NER-uncased")
+bert_ner_pipeline = pipeline(
+  "ner", model=model, tokenizer=tokenizer, device=(0 if torch.cuda.is_available() else -1)
+)
 
+# seaborn settings
 sns.set(rc = {'figure.figsize':(15,8)})
 sns.set_theme(style="white", font_scale=1.5)
 
+# data setup
 df = pd.read_parquet("wikibio_redacted_3.parquet.gzip")
-
 
 pt = "pmlm_tapas"
 rt = "roberta_tapas"
@@ -148,12 +157,16 @@ if not pospath.exists():
 
         doc = nlp(text)
         assert len(doc) == len(text.split())
+        entities = bert_ner_pipeline(text)
+
+        #for i in range(len(doc)):
+        #import pdb; pdb.set_trace()
         for method in deid_methods:
             words = rows[rows["deid_method"] == method]["perturbed_text"].values[0].split()
             is_masks = [w == "<mask>" for w in words]
             mask_sums[method] += np.sum(is_masks)
             assert len(doc) == len(is_masks)
-            for token, is_mask in zip(doc, is_masks):
+            for i, (token, is_mask) in enumerate(zip(doc, is_masks)):
                 if not is_mask:
                     pos = token.pos_
                     if pos not in exclude_pos:
@@ -180,20 +193,22 @@ ner_global = sum(nerdict.values(), Counter())
 def plot_words(k=10):
     pos_list = [p for p,c in pos_global.most_common(7)]
     ner_list = [n for n,c in ner_global.most_common(7)]
-    method_list = [neural, idf, "lexical"]
+    pos_method_list = [neural, idf]
+    ner_method_list = [neural, idf, "lexical"]
+
 
     # count, method, counter
     pos_df = pd.DataFrame([
         (method, x, c / posdict["document"][x])
         for method, counter in posdict.items()
         for x, c in counter.items()
-        if x in pos_list and method in method_list
+        if x in pos_list and method in pos_method_list
     ], columns=["method", "pos", "percent"])
     ner_df = pd.DataFrame([
         (method, x, c / nerdict["document"][x])
         for method, counter in nerdict.items()
         for x, c in counter.items()
-        if x in ner_list and method in method_list
+        if x in ner_list and method in ner_method_list
     ], columns=["method", "type", "percent"])
 
     ax = sns.barplot(
@@ -208,8 +223,8 @@ def plot_words(k=10):
     ax.legend(
         handles=handles,
         title="DeID model",
-        #labels = ["Ours","IDF", "Lexical"], # ideal ordering
-        labels = ["IDF", "Ours","Lexical"], # current ordering
+        #labels = ["NN ReID","IDF"], # ideal ordering
+        labels = ["IDF", "NN ReID"], # current ordering
     )
     plt.savefig(f"pos.png")
 
@@ -227,8 +242,8 @@ def plot_words(k=10):
     ax.legend(
         handles=handles,
         title="DeID model",
-        #labels = ["Ours","IDF", "Lexical"], # ideal ordering
-        labels = ["IDF", "Ours","Lexical"], # current ordering
+        #labels = ["NN ReID","IDF", "Lexical"], # ideal ordering
+        labels = ["IDF", "NN ReID","Lexical"], # current ordering
     )
     plt.savefig(f"ner.png")
     plt.close("all")
