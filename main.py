@@ -180,7 +180,7 @@ ner_global = sum(nerdict.values(), Counter())
 def plot_words(k=10):
     pos_list = [p for p,c in pos_global.most_common(7)]
     ner_list = [n for n,c in ner_global.most_common(7)]
-    method_list = ["lexical", idf, neural]
+    method_list = [neural, idf, "lexical"]
 
     # count, method, counter
     pos_df = pd.DataFrame([
@@ -200,11 +200,17 @@ def plot_words(k=10):
         data=pos_df, x="pos", y="percent", hue="method",
         palette = dict(
             zip(deid_methods, sns.color_palette("hls", len(deid_methods)))
-        )
+        ),
+        #order = method_list,
     )
     ax.set(ylabel = "Percentage masked", xlabel = "POS tags")
     handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles=handles, title="DeID model", labels = ["IDF","Ours", "Lexical"])
+    ax.legend(
+        handles=handles,
+        title="DeID model",
+        #labels = ["Ours","IDF", "Lexical"], # ideal ordering
+        labels = ["IDF", "Ours","Lexical"], # current ordering
+    )
     plt.savefig(f"pos.png")
 
     plt.close("all")
@@ -213,11 +219,17 @@ def plot_words(k=10):
         data=ner_df, x="type", y="percent", hue="method",
         palette = dict(
             zip(deid_methods, sns.color_palette("hls", len(deid_methods)))
-        )
+        ),
+        #order = method_list,
     )
     ax.set(ylabel = "Percentage masked", xlabel = "NER labels")
     handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles=handles, title="DeID model", labels = ["IDF","Ours", "Lexical"])
+    ax.legend(
+        handles=handles,
+        title="DeID model",
+        #labels = ["Ours","IDF", "Lexical"], # ideal ordering
+        labels = ["IDF", "Ours","Lexical"], # current ordering
+    )
     plt.savefig(f"ner.png")
     plt.close("all")
 
