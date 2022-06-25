@@ -6,6 +6,22 @@ import math
 from collections import Counter
 import spacy
 
+import pickle
+import pathlib
+
+import re
+import spacy
+from spacy.tokenizer import Tokenizer
+
+
+nlp = spacy.load('en_core_web_sm')
+#text = "This is it's"
+#print("Before:", [tok for tok in nlp(text)])
+
+nlp.tokenizer = Tokenizer(nlp.vocab, token_match=re.compile(r'\S+').match)
+
+
+sns.set(rc = {'figure.figsize':(15,8)})
 sns.set_theme(style="white", font_scale=1.5)
 
 df = pd.read_parquet("wikibio_redacted_3.parquet.gzip")
@@ -28,135 +44,17 @@ pt_correct, rt_correct, rr_correct = correct
 
 deid_methods = df["deid_method"].unique()
 neural = "ts_0.10__mpw0.40__min_idf1.00"
+idf = "idf__maxidf_7.0"
 
 # Analysis 1
 # Reidentification model diversity. How diverse is the reid ensemble?
 # * Data
 #     * for each doc, top-k list of profiles for each model.
 #     * ideally with p(y | x,z) for each model?
-# * Metrics
-#     * average size of pairwise intersection between top-k
-#     * variance of the rank of hat{y} over models, averaged over docs
-#     * average pairwise absolute difference in rank of hat{y} over models, averaged over docs
+# * Plot
+#     * Rank of DeID vs rank of ReID
 
-# TOP-K INTERSECTION ANALYSIS
-
-def pairwise_intersection(xs):
-    n = len(xs)
-    intersection_lens = [
-        len(xs[i].intersection(xs[j]))
-        for i in range(n) for j in range(i+1,n)
-    ]
-    return intersection_lens
-
-#method = "pmlm_tapas__eps_0.0005"
-#rows = df[df["deid_method"] == method]
-#row = rows.iloc[0]
-
-def topk_analysis(k=10):
-    intersections = {method: Counter() for method in deid_methods}
-    for row in df.iloc:
-        ptids = row[pt_idxs][:k]
-        rtids = row[rt_idxs][:k]
-        rrids = row[rr_idxs][:k]
-
-        deid_method = row["deid_method"]
-
-        pt_rt, pt_rr, rt_rr = pairwise_intersection([set(x) for x in [ptids, rtids, rrids]])
-        intersections[deid_method]["pt_rt"] += pt_rt
-        intersections[deid_method]["pt_rr"] += pt_rr
-        intersections[deid_method]["rt_rr"] += rt_rr
-
-    N = len(df)
-    print(f"Intersection of top-{k} profiles")
-    print()
-    print("deid method")
-    print("model pair: sum of intersections / num documents (avg intersection size)")
-    print()
-    for method, counter in intersections.items():
-        print(method)
-        total = (df.deid_method == method).sum()
-        for pair, count in counter.items():
-            print(f"{pair}: {count} / {total} ({count / total:.2f})")
-        print()
-
-#topk_analysis(10)
-#topk_analysis(1)
-
-
-# RANK ANALYSIS
-def pairwise_diff(xs):
-    n = len(xs)
-    return [
-        abs(xs[i] - xs[j])
-        for i in range(n) for j in range(i+1,n)
-    ]
-
-def rank_analysis():
-    rank_diffs = {method: Counter() for method in deid_methods}
-    for row in df.iloc:
-        ptrank = row["pmlm_tapas__true_profile_idxs"]
-        rtrank = row["roberta_tapas__true_profile_idxs"]
-        rrrank = row["roberta_roberta__true_profile_idxs"]
-
-        deid_method = row["deid_method"]
-
-        pt_rt, pt_rr, rt_rr = pairwise_diff([ptrank, rtrank, rrrank])
-        rank_diffs[deid_method]["pt_rt"] += pt_rt
-        rank_diffs[deid_method]["pt_rr"] += pt_rr
-        rank_diffs[deid_method]["rt_rr"] += rt_rr
-
-    N = len(df)
-    print(f"Rank differences of true profile")
-    print()
-    print("deid method")
-    print("model pair: avg rank diff")
-    print()
-    for method, counter in rank_diffs.items():
-        print(method)
-        total = (df.deid_method == method).sum()
-        for pair, count in counter.items():
-            print(f"{pair}: {count / total:.2f}")
-        print()
-
-rank_analysis()
-
-def rank_diff_analysis():
-    model_pairs = [
-        (models[i], models[j])
-        for i in range(len(models)) for j in range(i+1,len(models))
-    ]
-    print("RANK DIFFERENCES")
-    for m1, m2 in model_pairs:
-        print(m1, m2)
-        m1_profile = f"{m1}__true_profile_idxs"
-        m2_profile = f"{m2}__true_profile_idxs"
-
-        r1 = df[m1_profile]
-        r2 = df[m2_profile]
-        mean_rank_diff = (r1 - r2).abs().mean()
-
-        # only when method is correct
-        #r1c = df[][m1_profile]
-        #r2c = df[][m2_profile]
-        #mean_rank_diff_filtered = (r1c - r2c).abs().mean()
-
-
-def correlation_analysis():
-    print("CORRELATION OF TRUE PROFILE RANK")
-    for m1, m2 in model_pairs:
-        print(m1, m2)
-        m1_profile = f"{m1}__true_profile_idxs"
-        m2_profile = f"{m2}__true_profile_idxs"
-        corr = df.groupby("deid_method")[[m1_profile, m2_profile]].corr()
-        #log_corr = np.log(df.groupby("deid_method")[[m1_profile, m2_profile]]).corr()
-        for method in deid_methods:
-            correlation = corr.loc[method].values[0,1]
-            print(f"  {method}: corr {correlation}")
-            #log_correlation = log_corr.loc[method].values[0,1]
-            #print(f"  {method}: corr {correlation} || corr(log) {log_correlation}")
-
-def plot_ranks(clipval=10000):
+def plot_ranks(clipval=2000):
     df["pmlm_tapas__true_profile_idxs__clipped"] = df["pmlm_tapas__true_profile_idxs"].clip(0,clipval)
     df["roberta_tapas__true_profile_idxs__clipped"] = df["roberta_tapas__true_profile_idxs"].clip(0,clipval)
     df["roberta_roberta__true_profile_idxs__clipped"] = df["roberta_roberta__true_profile_idxs"].clip(0,clipval)
@@ -174,6 +72,8 @@ def plot_ranks(clipval=10000):
     )
     #plt.tight_layout()
     plt.savefig(f"rank-rank-{clipval}.png")
+
+    plt.close("all")
     #plt.tight_layout()
     g = sns.jointplot(
         data=df[df["deid_method"] == neural],
@@ -185,20 +85,16 @@ def plot_ranks(clipval=10000):
     g.ax_joint.set_ylabel("ReID Model (RT)")
     g.ax_joint.set_xlabel("DeID (PT @ K = 8)")
 
-    #g.ax_joint.set_xlim(1.5, math.log10(1+clipval) + .2)
     g.ax_joint.set_xlim(1.5)
-    #g.ax_joint.set_xlim(1, )
-    #g.ax_joint.set_ylim(-.1, math.log10(1+clipval) + .1)
 
-    #g.ax_joint.set_xticks([1,2,3])
     g.ax_joint.set_xticks([2,3])
     g.ax_joint.set_yticks([1,2,3])
 
-    #g.ax_joint.set_xticklabels([10,100,1000])
     g.ax_joint.set_xticklabels([100,1000])
     g.ax_joint.set_yticklabels([10,100,1000])
 
     plt.savefig(f"logrank-logrank-{clipval}.png")
+    plt.close("all")
 
 for clip in [100, 1000, 2000, 10000]:
     plot_ranks(clip)
@@ -207,24 +103,124 @@ for clip in [100, 1000, 2000, 10000]:
 # De-identification strategy. How does greedy deid redaction differ from baselines?
 # * Data
 #     * masked documents under each method
-# * Metrics
-#     * tbd after exploratory analysis?
-#     * difference in named entities redacted
-#     * quantify quasi-identifiers?
+# * Plots
+#     * Histogram of named entitites
+#     * Histogram of PoS
 
 # 0-999, eg range(1000)
 documents = df["i"].unique()
 ndocs = 1000
 
-for doc in range(ndocs):
-    rows = df[df["i"] == doc]
-    texts = rows["perturbed_text"]
+n = 0
 
-    text_row = rows[rows["deid_method"] == "document"]
-    idf_row = rows[rows["deid_method"] == "idf__maxidf_7.0"]
-    nn_row = rows[rows["deid_method"] == "ts_0.10__mpw0.40__min_idf1.00"]
+pospath = pathlib.Path("posdict.pkl")
+nerpath = pathlib.Path("nerdict.pkl")
 
-    text = text_row["perturbed_text"]
-    idf_text = idf_row["perturbed_text"]
-    nn_text = nn_row["perturbed_text"]
-    #import pdb; pdb.set_trace()
+exclude_pos = ["X", "PUNCT", "DET", "ADP"]
+
+posdict = None
+nerdict = None
+if not pospath.exists():
+    posdict = {m: Counter() for m in deid_methods}
+    nerdict = {m: Counter() for m in deid_methods}
+    mask_sums = Counter()
+    for doc in range(ndocs):
+        rows = df[df["i"] == doc]
+
+        if rows.shape[0] != 5:
+            # missing rows
+            continue
+
+        n += 1
+        #texts = rows["perturbed_text"]
+
+        text_row = rows[rows["deid_method"] == "document"]
+        lex_row = rows[rows["deid_method"] == "lexical"]
+        ner_row = rows[rows["deid_method"] == "named_entity"]
+        idf_row = rows[rows["deid_method"] == "idf__maxidf_7.0"]
+        nn_row = rows[rows["deid_method"] == "ts_0.10__mpw0.40__min_idf1.00"]
+
+        text = text_row["perturbed_text"].values[0]
+        lex_text = lex_row["perturbed_text"].values[0]
+        ner_text = ner_row["perturbed_text"].values[0]
+        idf_text = idf_row["perturbed_text"].values[0]
+        nn_text = nn_row["perturbed_text"].values[0]
+
+        doc = nlp(text)
+        assert len(doc) == len(text.split())
+        for method in deid_methods:
+            words = rows[rows["deid_method"] == method]["perturbed_text"].values[0].split()
+            is_masks = [w == "<mask>" for w in words]
+            mask_sums[method] += np.sum(is_masks)
+            assert len(doc) == len(is_masks)
+            for token, is_mask in zip(doc, is_masks):
+                if not is_mask:
+                    pos = token.pos_
+                    if pos not in exclude_pos:
+                        posdict[method][pos] += 1
+                    iob = token.ent_iob_
+                    if iob == "B" or iob == "I":
+                        label = token.ent_type_
+                        nerdict[method][label] += 1
+    with pospath.open("wb") as f:
+        pickle.dump(posdict, f)
+    with nerpath.open("wb") as f:
+        pickle.dump(nerdict, f)
+    print(mask_sums)
+else:
+    with pospath.open("rb") as f:
+        posdict = pickle.load(f)
+    with nerpath.open("rb") as f:
+        nerdict = pickle.load(f)
+
+
+pos_global = sum(posdict.values(), Counter())
+ner_global = sum(nerdict.values(), Counter())
+
+def plot_words(k=10):
+    pos_list = [p for p,c in pos_global.most_common(7)]
+    ner_list = [n for n,c in ner_global.most_common(7)]
+    method_list = ["lexical", idf, neural]
+
+    # count, method, counter
+    pos_df = pd.DataFrame([
+        (method, x, c / posdict["document"][x])
+        for method, counter in posdict.items()
+        for x, c in counter.items()
+        if x in pos_list and method in method_list
+    ], columns=["method", "pos", "percent"])
+    ner_df = pd.DataFrame([
+        (method, x, c / nerdict["document"][x])
+        for method, counter in nerdict.items()
+        for x, c in counter.items()
+        if x in ner_list and method in method_list
+    ], columns=["method", "type", "percent"])
+
+    ax = sns.barplot(
+        data=pos_df, x="pos", y="percent", hue="method",
+        palette = dict(
+            zip(deid_methods, sns.color_palette("hls", len(deid_methods)))
+        )
+    )
+    ax.set(ylabel = "Percentage masked", xlabel = "POS tags")
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles=handles, title="DeID model", labels = ["IDF","Ours", "Lexical"])
+    plt.savefig(f"pos.png")
+
+    plt.close("all")
+
+    ax = sns.barplot(
+        data=ner_df, x="type", y="percent", hue="method",
+        palette = dict(
+            zip(deid_methods, sns.color_palette("hls", len(deid_methods)))
+        )
+    )
+    ax.set(ylabel = "Percentage masked", xlabel = "NER labels")
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles=handles, title="DeID model", labels = ["IDF","Ours", "Lexical"])
+    plt.savefig(f"ner.png")
+    plt.close("all")
+
+plot_words()
+
+print(f"Num docs analyzed: {n}")
