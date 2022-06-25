@@ -1,3 +1,4 @@
+from typing import List
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -30,8 +31,16 @@ bert_ner_pipeline = pipeline(
 )
 
 # seaborn settings
-sns.set(rc = {'figure.figsize':(15,8)})
+#sns.set(rc = {'figure.figsize':(15,8)})
 sns.set_theme(style="white", font_scale=1.5)
+
+# helper function for tokenization
+words_from_text_re = re.compile(r'\b\w+\b')
+def words_from_text(s: str) -> List[str]:
+    assert isinstance(s, str)
+    return words_from_text_re.findall(s)
+
+num_words_from_text = lambda s: len(words_from_text(s))
 
 # data setup
 df = pd.read_parquet("wikibio_redacted_3.parquet.gzip")
@@ -155,19 +164,21 @@ if not pospath.exists():
         idf_text = idf_row["perturbed_text"].values[0]
         nn_text = nn_row["perturbed_text"].values[0]
 
+        #doc = nlp(" ".join(words_from_text(text)))
+        #assert len(doc) == len(words_from_text(text))
         doc = nlp(text)
         assert len(doc) == len(text.split())
         entities = bert_ner_pipeline(text)
 
         #for i in range(len(doc)):
         # compare idf and neural masking for POS
-        for (a,b,c) in zip(doc, idf_text.split(), nn_text.split()):
-            print(a.pos_, b, c)
-        import pdb; pdb.set_trace()
-        for method in deid_methods:
+        for method in ["document", idf, neural]:
+            #words = words_from_text(rows[rows["deid_method"] == method]["perturbed_text"].values[0])
             words = rows[rows["deid_method"] == method]["perturbed_text"].values[0].split()
             is_masks = [w == "<mask>" for w in words]
             mask_sums[method] += np.sum(is_masks)
+            if len(doc) != len(is_masks):
+                import pdb; pdb.set_trace()
             assert len(doc) == len(is_masks)
             for i, (token, is_mask) in enumerate(zip(doc, is_masks)):
                 if method == "document" or is_mask:
@@ -193,8 +204,10 @@ else:
 pos_global = sum(posdict.values(), Counter())
 ner_global = sum(nerdict.values(), Counter())
 
+print(posdict["document"])
+
 def plot_words(k=10):
-    pos_list = [p for p,c in pos_global.most_common(7)]
+    pos_list = [p for p,c in pos_global.most_common(6)]
     ner_list = [n for n,c in ner_global.most_common(7)]
     pos_method_list = [neural, idf]
     ner_method_list = [neural, idf, "lexical"]
@@ -227,10 +240,10 @@ def plot_words(k=10):
         handles=handles,
         title="DeID model",
         #labels = ["NN ReID","IDF"], # ideal ordering
-        labels = ["IDF", "NN ReID"], # current ordering
+        labels = ["IDF", "NN DeID"], # current ordering
     )
+    plt.tight_layout()
     plt.savefig(f"pos.png")
-
     plt.close("all")
 
     ax = sns.barplot(
@@ -246,7 +259,7 @@ def plot_words(k=10):
         handles=handles,
         title="DeID model",
         #labels = ["NN ReID","IDF", "Lexical"], # ideal ordering
-        labels = ["IDF", "NN ReID","Lexical"], # current ordering
+        labels = ["IDF", "NN DeID","Lexical"], # current ordering
     )
     plt.savefig(f"ner.png")
     plt.close("all")
