@@ -160,14 +160,17 @@ if not pospath.exists():
         entities = bert_ner_pipeline(text)
 
         #for i in range(len(doc)):
-        #import pdb; pdb.set_trace()
+        # compare idf and neural masking for POS
+        for (a,b,c) in zip(doc, idf_text.split(), nn_text.split()):
+            print(a.pos_, b, c)
+        import pdb; pdb.set_trace()
         for method in deid_methods:
             words = rows[rows["deid_method"] == method]["perturbed_text"].values[0].split()
             is_masks = [w == "<mask>" for w in words]
             mask_sums[method] += np.sum(is_masks)
             assert len(doc) == len(is_masks)
             for i, (token, is_mask) in enumerate(zip(doc, is_masks)):
-                if not is_mask:
+                if method == "document" or is_mask:
                     pos = token.pos_
                     if pos not in exclude_pos:
                         posdict[method][pos] += 1
