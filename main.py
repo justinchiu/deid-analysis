@@ -166,6 +166,7 @@ if not pospath.exists():
 
         #doc = nlp(" ".join(words_from_text(text)))
         #assert len(doc) == len(words_from_text(text))
+        
         doc = nlp(text)
         assert len(doc) == len(text.split())
         entities = bert_ner_pipeline(text)
@@ -173,9 +174,15 @@ if not pospath.exists():
         #for i in range(len(doc)):
         # compare idf and neural masking for POS
         for method in ["document", idf, neural]:
-            #words = words_from_text(rows[rows["deid_method"] == method]["perturbed_text"].values[0])
+            #words = words_from_text(
+                #rows[rows["deid_method"] == method]["perturbed_text"].values[0]
+                    #.replace("<mask>", "MASK")
+            #)
+            #is_masks = [w == "MASK" for w in words]
+
             words = rows[rows["deid_method"] == method]["perturbed_text"].values[0].split()
             is_masks = [w == "<mask>" for w in words]
+
             mask_sums[method] += np.sum(is_masks)
             if len(doc) != len(is_masks):
                 import pdb; pdb.set_trace()
